@@ -1,18 +1,26 @@
-# Script version: v3.0
-# Date: 10:12 AM 6/11/2023
+# Script version: v4.0
+# Date: 12:54 PM 25/02/2024
 $ErrorActionPreference = "Stop"
 Write-Host "APP STARTED"
 
 # Load necessary assembly for GUI dialog
 Add-Type -AssemblyName System.Windows.Forms
 
+# Initialize a variable at the script scope to keep track of the form
+$script:currentForm = $null
+
 # Define a warning dialogue funtion
 function ShowDialogue($message)
 {
-    # Create dialog to show pending shutdown
+    # Close previous form if it is still open
+    if ($null -ne $script:currentForm) {
+        $script:currentForm.Close()
+    }
+
+    # Create dialog to show our message
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'WARNING'
-    $form.Width = 200
+    $form.Width = 350
     $form.Height = 100
     $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
 
@@ -25,9 +33,24 @@ function ShowDialogue($message)
 
     # Add label to form
     $form.Controls.Add($label)
+
+    # Update the script-scoped variable to keep track of the current form
+    $script:currentForm = $form
         
     # Show the dialog
     $form.Show()
+}
+
+function TriggerAction($delayInMinutes)
+{
+    if ($checkbox.Checked)
+    {
+        TriggerLock($delayInMinutes)
+    }
+    else 
+    {
+        TriggerReboot($delayInMinutes)
+    }
 }
 
 # Define a reboot function
@@ -47,15 +70,36 @@ function TriggerReboot($delayInMinutes)
     $global:timer.Start()
 }
 
+# Define a lock PC function
+function TriggerLock($delayInMinutes)
+{
+    $delayInSeconds = $delayInMinutes * 60
+    
+    ShowDialogue -message "Locking PC in $delayInMinutes minutes"
+    
+    # Create Timer for Lock
+    $global:timer = New-Object System.Windows.Forms.Timer
+    $global:timer.Interval = $delayInSeconds * 1000
+    $global:timer.Add_Tick({        
+        Write-Host "PC LOCK INVOKED"        
+        rundll32.exe user32.dll,LockWorkStation
+        $global:timer.Stop()
+        
+        $dateTimeNow = Get-Date -Format "dd-MMM-yyyy HH:mm"
+        ShowDialogue -message "System locked at $dateTimeNow "
+    })
+    $global:timer.Start()
+}
+
 # Create the main form
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Silent Reboot Helper'
+$form.Text = 'Focus Breaker Helper'
 $form.Width = 350
-$form.Height = 240
+$form.Height = 300
 
 # Add a label for the title
 $label = New-Object System.Windows.Forms.Label
-$label.Text = 'Clicking one of the options below, will cause a reboot.'
+$label.Text = 'Pick a time, and a method for kicking you off this PC.'
 $label.AutoSize = $true
 $label.Location = New-Object System.Drawing.Point(10, 10)
 $form.Controls.Add($label)
@@ -77,7 +121,7 @@ $buttonAccept.Text = 'Accept'
 $buttonAccept.Width = 150
 $buttonAccept.Add_Click({
     $minutes = [int]$textbox.Text
-    TriggerReboot -delayInMinutes $minutes
+    TriggerAction -delayInMinutes $minutes
 })
 
 $form.Controls.Add($buttonAccept)
@@ -89,7 +133,7 @@ $button10Min.Location = New-Object System.Drawing.Point(10, 70)
 $button10Min.Text = '10 Minutes'
 $button10Min.Width = 150
 $button10Min.Add_Click({
-    TriggerReboot -delayInMinutes 10
+    TriggerAction -delayInMinutes 10
 })
 $form.Controls.Add($button10Min)
 
@@ -99,7 +143,7 @@ $button15Min.Location = New-Object System.Drawing.Point(170, 70)
 $button15Min.Text = '15 Minutes'
 $button15Min.Width = 150
 $button15Min.Add_Click({
-    TriggerReboot -delayInMinutes 15
+    TriggerAction -delayInMinutes 15
 })
 $form.Controls.Add($button15Min)
 
@@ -110,7 +154,7 @@ $button20Min.Location = New-Object System.Drawing.Point(10, 100)
 $button20Min.Text = '20 Minutes'
 $button20Min.Width = 150
 $button20Min.Add_Click({
-    TriggerReboot -delayInMinutes 20
+    TriggerAction -delayInMinutes 20
 })
 $form.Controls.Add($button20Min)
 
@@ -120,7 +164,7 @@ $button30Min.Location = New-Object System.Drawing.Point(170, 100)
 $button30Min.Text = '30 Minutes'
 $button30Min.Width = 150
 $button30Min.Add_Click({
-    TriggerReboot -delayInMinutes 30
+    TriggerAction -delayInMinutes 30
 })
 $form.Controls.Add($button30Min)
 
@@ -131,7 +175,7 @@ $button45Min.Location = New-Object System.Drawing.Point(10, 130)
 $button45Min.Text = '45 Minutes'
 $button45Min.Width = 150
 $button45Min.Add_Click({
-    TriggerReboot -delayInMinutes 45
+    TriggerAction -delayInMinutes 45
 })
 $form.Controls.Add($button45Min)
 
@@ -141,13 +185,29 @@ $button60Min.Location = New-Object System.Drawing.Point(170, 130)
 $button60Min.Text = '1 Hour'
 $button60Min.Width = 150
 $button60Min.Add_Click({
-    TriggerReboot -delayInMinutes 60
+    TriggerAction -delayInMinutes 60
 })
 $form.Controls.Add($button60Min)
 
+# ROW 5
+# Add button to reboot after a Work Day (7.6h)
+$buttonWorkDay= New-Object System.Windows.Forms.Button
+$buttonWorkDay.Location = New-Object System.Drawing.Point(10, 160)
+$buttonWorkDay.Text = 'Workday'
+$buttonWorkDay.Width = 150
+$buttonWorkDay.Add_Click({
+    TriggerAction -delayInMinutes 506
+})
+$form.Controls.Add($buttonWorkDay)
+$workdayToolTip = New-Object System.Windows.Forms.ToolTip
+$workdayToolTip.SetToolTip($buttonWorkDay, "7.6H work and 50m break.")
+
+
+
+# ROW 6
 # Add Cancel Reboot button
 $buttonCancel = New-Object System.Windows.Forms.Button
-$buttonCancel.Location = New-Object System.Drawing.Point(10, 160)
+$buttonCancel.Location = New-Object System.Drawing.Point(10, 190)
 $buttonCancel.Text = 'Cancel Reboot'
 $buttonCancel.Width = 310
 $buttonCancel.Add_Click({
@@ -155,6 +215,19 @@ $buttonCancel.Add_Click({
     [System.Windows.Forms.MessageBox]::Show("Reboot Cancelled", "Notification", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 })
 $form.Controls.Add($buttonCancel)
+
+# ROW 7
+# Add checkbox for lockout only
+$checkbox = New-Object System.Windows.Forms.CheckBox
+$checkbox.Location = New-Object System.Drawing.Point(10,220)
+$checkbox.Width = 150
+$checkbox.Text = "Lock Only"
+$checkbox.Checked = $false # Set default state
+
+$lockToolTip = New-Object System.Windows.Forms.ToolTip
+$lockToolTip.SetToolTip($checkbox, "Selecting this to be Disabled will Reboot.")
+
+$form.Controls.Add($checkbox)
 
 # Show the form
 
