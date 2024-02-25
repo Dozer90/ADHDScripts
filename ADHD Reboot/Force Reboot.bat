@@ -1,4 +1,2 @@
-:: v1.0 2021?
-shutdown -r -t 2100 -c " "
-shutdown -r -t 2100
-
+:: v2.0 9:28 AM 16/09/2023
+powershell.exe -ExecutionPolicy Bypass -File "C:\Tools\SilentReboot.ps1"
