@@ -12,23 +12,6 @@ Add-Type -AssemblyName System.Drawing
 #==================================================
 #==================================================
 #
-#                   VARIABLES
-#
-#==================================================
-#==================================================
-
-$monoFont = New-Object System.Drawing.Font("Courier New", 9, [System.Drawing.FontStyle]::Regular)
-$iconRootPath = Join-Path -Path $PSScriptRoot -ChildPath "icons\"
-$audioRootPath = Join-Path -Path $PSScriptRoot -ChildPath "audio\"
-
-$timeCooldown = 120     # Used to prevent alert popups from displaying too early
-$timeRemaining = 0
-$timerAction = [TimerAction]::Undefined
-
-
-#==================================================
-#==================================================
-#
 #                  ENUMERATIONS
 #
 #==================================================
@@ -44,6 +27,23 @@ public enum TimerAction {
     Shutdown
 }
 "@
+
+
+#==================================================
+#==================================================
+#
+#                   VARIABLES
+#
+#==================================================
+#==================================================
+
+$monoFont = New-Object System.Drawing.Font("Courier New", 9, [System.Drawing.FontStyle]::Regular)
+$iconRootPath = Join-Path -Path $PSScriptRoot -ChildPath "icons\"
+$audioRootPath = Join-Path -Path $PSScriptRoot -ChildPath "audio\"
+
+$timeCooldown = 120     # Used to prevent alert popups from displaying too early
+$timeRemaining = 0
+$timerAction = [TimerAction]::Undefined
 
 
 #==================================================
@@ -111,7 +111,7 @@ function Get-TimerActionDesc {
 ##    param text: The tooltip message
 function Create-ToolTip {
     param (
-        [Object]$on,
+        [System.Windows.Forms.Control]$on,
         [string]$text
     )
 
@@ -121,7 +121,7 @@ function Create-ToolTip {
     $tooltip.Add_Draw({ param ($sender, $e)
         $e.Graphics.DrawString($toolTip.GetToolTip($e.AssociatedControl), $monoFont, [System.Drawing.Brushes]::Black, $e.Bounds)
     })
-    $on.SetToolTip($tooltip, $text)
+    $tooltip.SetToolTip($on, $text)
 }
 
 
@@ -170,23 +170,26 @@ function Update-TimerPausedState {
 
 
 ## Check to see if we can start the timer
-function Can-StartTimer {
+function Check-CanStartTimer {
     $timeSeconds = $timePicker.Value.Millisecond / 1000
-    if ($timeSeconds -ge (3 * 60)) {
+    #if ($timeSeconds -ge (3 * 60)) {
+        Write-Host $actionComboBox.SelectedItem
         $action = Get-EnumFromComboBox -value $actionComboBox.SelectedItem
         if ($action -ne [TimerAction]::Undefined)
         {
+            Write-Host "Can start timer"
             $timeRemaining = $time - $timeCooldown
-            $timerCompleteAction = $action
+            Set-TimerAction -action $action
             return $true
         }
-    }
+    #}
     return $false
 }
 
 
 ## Starts the timer to the next break
 function Start-Timer {
+    Write-Host "Starting timer..."
     $timer.Start()
     [System.Windows.Forms.Application]::Run()
 
@@ -198,6 +201,8 @@ function Start-Timer {
         "Hover over the Focus Break icon in the notification bar to see remaining time and right-click for options.",
         [System.Windows.Forms.ToolTipIcon]::Notice
     )
+    $notificationTrayIcon.Visible = $true
+    
 }
 
 
@@ -220,6 +225,10 @@ function Update-NotificationTrayHoverText {
     } else {
         $notifyIcon.Text = "$actionName..."
     }
+}
+
+function Update-NotificationTrayIcon {
+    
 }
 
 
@@ -295,83 +304,116 @@ function Step-TimerCompleteMessage
 {
     Write-Host "TIMER COMPLETED MESSAGE DISPLAYED"
 
+    # Create a transparent overlay (full-screen)
+    $overlayForm = New-Object System.Windows.Forms.Form
+    $overlayForm.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+    $overlayForm.TopMost = $true
+    $overlayForm.ShowInTaskbar = $false
+    $overlayForm.BackColor = [System.Drawing.Color]::FromArgb(255, 0, 0, 0)  # Fully transparent background
+    $overlayForm.Bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $overlayForm.Location = New-Object System.Drawing.Point(0, 0)
+    $overlayForm.Opacity = 0.6  # Adjust opacity to make it semi-transparent
+
     $nudgeWindow = New-Object System.Windows.Forms.Form -Property @{
-        Text            = "Break time!"
-        Size            = New-Object Drawing.Size(300, 150)
+        Size            = New-Object Drawing.Size(300, 110)
+        Padding         = New-Object System.Windows.Forms.Padding(10, 10, 10, 10)
         StartPosition   = "CenterScreen"
-        FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedDialog
+        FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
         MaximizeBox     = $false
         MinimizeBox     = $false
         ControlBox      = $false
         TopMost         = $true
     }
 
-    $takeABreakLabel = New-Object System.Windows.Forms.Label -Property @{
-        Text = "It's time to take a break!"
-        AutoSize = $true
-        TextAlign = "MiddleCenter"
-        Dock = "Fill"
+    $labelPanel = New-Object System.Windows.Forms.Panel -Property @{
+        Dock            = "Fill"
     }
-    $nudgeWindow.Controls.Add($takeABreakLabel)
+    $nudgeWindow.Controls.Add($labelPanel)
 
-    $okButton = New-Object System.Windows.Forms.Button -Property @{
-        Text = "OK"
-        DialogResult = [System.Windows.Forms.DialogResult]::OK
-        Anchor = "Bottom"
-        Dock = "Bottom"
+    $takeABreakLabel = New-Object System.Windows.Forms.Label -Property @{
+        Text            = "Break time!"
+        Dock            = "Fill"
+        TextAlign       = "MiddleCenter"
     }
-    $nudgeWindow.Controls.Add($okButton)
-    $nudgeWindow.AcceptButton = $okButton
+    $takeABreakLabel.Font = New-Object System.Drawing.Font($takeABreakLabel.Font.FontFamily, 20)
+    $labelPanel.Controls.Add($takeABreakLabel)
 
     $nudgeTimer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = 100  # 0.1 seconds
+
+    $okButton = New-Object System.Windows.Forms.Button -Property @{
+        Text                = "OK"
+        DialogResult        = [System.Windows.Forms.DialogResult]::OK
+        Dock                = "Bottom"
+    }
+    $okButton.add_Click({
+        [System.Windows.Forms.Application]::Exit()
+        $nudgeTimer.Stop()
+    })
+    $nudgeWindow.Controls.Add($okButton)
+    $nudgeWindow.AcceptButton = $okButton
 
     $random = New-Object System.Random
     $centerX = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Width / 2 - $nudgeWindow.Width / 2
     $centerY = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds.Height / 2 - $nudgeWindow.Height / 2
 
-    $timesShaken = 0
-    $timesNudged = 0
+    $script:timesNudged = 0
+    $maxNudgeCount = 5
+    $nudgeDurationInSeconds = 0.8
+    $script:nudgeTimeEllapsed = 0
+    $secondsBetweenNudge = 30
 
-    $timer.Add_Tick({
-        if ($timesShaken -eq 0) {
+    $shakesPerSecond = 40
+    $shakeIntensityRadius = 6
+
+    $nudgeSound.Load()
+    $nudgeTimerInterval = 1000 / $shakesPerSecond
+
+    $nudgeTimer.Add_Tick({
+        Write-Host "Tick"
+
+        if ($script:nudgeTimeEllapsed -eq 0) {
+            Write-Host "Starting nudge..."
             $okButton.Enabled = $false
-            $timesNudged++
-            if ($timesNudged -le 5) {
-                $nudgeSound.Play()
-                $timer.Interval = 100  # 0.1 seconds
-            } else {
-                # Stop after the fifth nudge
+            $nudgeSound.Play()
+            $nudgeTimer.Interval = $nudgeTimerInterval
+        }
+
+        $script:nudgeTimeEllapsed += $nudgeTimerInterval
+        Write-Host "Nudge time ellapsed: $script:nudgeTimeEllapsed"
+
+        if ($script:nudgeTimeEllapsed -le ($nudgeDurationInSeconds * 1000)) {
+            Write-Host "- Shake -"
+            # Move the form to the new location
+            $posX = $centerX + $random.Next(-$shakeIntensityRadius, $shakeIntensityRadius + 1)
+            $posY = $centerY + $random.Next(-$shakeIntensityRadius, $shakeIntensityRadius + 1)
+            $nudgeWindow.Location = New-Object Drawing.Point($posX, $posY)
+        } else {
+            Write-Host "Nudge ended"
+            $script:timesNudged++
+            $script:nudgeTimeEllapsed = 0
+            $okButton.Enabled = $true
+            $nudgeWindow.Location = New-Object Drawing.Point($centerX, $centerY)
+            $nudgeTimer.Interval = ($secondsBetweenNudge - $nudgeDurationInSeconds) * 1000
+
+            # Check if we have reached the max nudge count
+            if ($script:timesNudged -ge $maxNudgeCount) {
                 $nudgeTimer.Stop()
-                return
+                Write-Host "Timer stopped"
             }
         }
-        $timesShaken++
-
-        # Generate a small random offset within a range (e.g., -20 to +20 pixels)
-        $offsetX = $random.Next(-20, 21)
-        $offsetY = $random.Next(-20, 21)
-
-        if ($timesShaken -lt 10) {
-            $okButton.Enabled = $true
-            $offsetX = 0
-            $offsetY = 0
-            $timesShaken = 0
-            $timer.Interval = 10000     # 10 seconds
-        }
-
-        # Move the form to the new location
-        $nudgeWindow.Location = New-Object Drawing.Point($centerX + $offsetX, $centerY + $offsetY)
     })
 
+    $overlayForm.Show()
+    $nudgeWindow.Show()
+    $nudgeTimer.Interval = $nudgeTimerInterval
     $nudgeTimer.Start()
+    
+    Write-Host "START"
     [System.Windows.Forms.Application]::Run()
 
-    $nudgeWindow.ShowDialog()
-
-    $nudgeTimer.Stop()
-    $nudgeTimer.Dispose()
-    [System.Windows.Forms.Application]::Exit()
+    #$nudgeTimer.Stop()
+    #$nudgeTimer.Dispose()
+    #[System.Windows.Forms.Application]::Exit()
 }
 
 
@@ -478,7 +520,7 @@ $actionComboBoxToolTipMessage = "What should happen when we reach the chosen tim
                                 "  Reboot PC                Forces the PC to restart. Can only be used`n" +
                                 "                           for your final break.`n" +
                                 "  Shutdown PC              Forces the PC to shutdown. Can only be used`n" +
-                                "                           for your final break.")
+                                "                           for your final break."
 Create-ToolTip -on $actionComboBox -text $actionComboBoxToolTipMessage
 
 # Add button to accept user input TriggerReboot -delay
@@ -511,7 +553,7 @@ $notificationTrayIcon = New-Object System.Windows.Forms.NotifyIcon -Property @{
 
 #==================================================
 # Timer
-$nudgeSound = New-Object System.Media.SoundPlayer $wavFilePath
+$nudgeSound = New-Object System.Media.SoundPlayer ($audioRootPath + "nudge.wav")
 
 
 #==================================================
@@ -559,19 +601,20 @@ $ctxMenu.MenuItems.Add($ctxMenu_Cancel)
 
 
 
+Step-TimerCompleteMessage
 
-# Show the form
-Write-Host "APP SETUP"
-$result = $chooseTimeForm.ShowDialog()
-
-# Check what the result was
-if ($result -eq [Windows.Forms.DialogResult]::OK) {
-    $timeSeconds = $timePicker.Value.Millisecond / 1000
-    if ($timeSeconds -ge (3 * 60)) {
-        $action = Get-EnumFromComboBox -value $actionComboBox.SelectedItem
-        if ($action -ne [TimerAction]::Undefined)
-        {
-            Start-Timer -time $timeSeconds -action $action
-        }
-    }
-}
+## Show the form
+#Write-Host "APP SETUP"
+#$result = $chooseTimeForm.ShowDialog()
+#
+## Check what the result was
+#if ($result -eq [Windows.Forms.DialogResult]::OK) {
+#    $timeSeconds = $timePicker.Value.Millisecond / 1000
+#    if ($timeSeconds -ge (3 * 60)) {
+#        $action = Get-EnumFromComboBox -value $actionComboBox.SelectedItem
+#        if ($action -ne [TimerAction]::Undefined)
+#        {
+#            Start-Timer -time $timeSeconds -action $action
+#        }
+#    }
+#}
