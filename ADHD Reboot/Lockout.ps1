@@ -28,6 +28,14 @@ public enum TimerAction {
 }
 "@
 
+$timerActionNameMap = @{
+    "Display a message"     = [TimerAction]::Message
+    "Lock PC"               = [TimerAction]::Lock
+    "Sign user out"         = [TimerAction]::SignOut
+    "Reboot PC"             = [TimerAction]::Reboot
+    "Shutdown PC"           = [TimerAction]::Shutdown
+}
+
 
 #==================================================
 #==================================================
@@ -53,22 +61,6 @@ $timerAction = [TimerAction]::Undefined
 #
 #==================================================
 #==================================================
-
-## Get the enum value from a combo box value
-##    param [string] value: The value of the combo box
-function Get-EnumFromComboBox {
-    params ([string]$value)
-
-    switch ($value) {
-        "Display a message"     { return [TimerAction]::Message }
-        "Lock PC"               { return [TimerAction]::Lock }
-        "Sign user out"         { return [TimerAction]::SignOut }
-        "Reboot PC"             { return [TimerAction]::Reboot }
-        "Shutdown PC"           { return [TimerAction]::Shutdown }
-    }
-    return [TimerAction]::Undefined
-}
-
 
 ## Get the string version of the enum value
 ##    param [TimerAction] action: The action to get a description of (default: current action)
@@ -153,7 +145,7 @@ function Set-TimerAction {
     param ([TimerAction]$action)
 
     $timerAction = $action
-    $notificationTrayIcon.Icon = Get-Icon -action $action
+    Update-NotificationTrayIcon
 }
 
 
@@ -172,9 +164,9 @@ function Update-TimerPausedState {
 ## Check to see if we can start the timer
 function Check-CanStartTimer {
     $timeSeconds = $timePicker.Value.Millisecond / 1000
-    #if ($timeSeconds -ge (3 * 60)) {
+    if ($timeSeconds -ge (3 * 60)) {
         Write-Host $actionComboBox.SelectedItem
-        $action = Get-EnumFromComboBox -value $actionComboBox.SelectedItem
+        $action = $timerActionNameMap[$actionComboBox.SelectedItem]
         if ($action -ne [TimerAction]::Undefined)
         {
             Write-Host "Can start timer"
@@ -182,7 +174,7 @@ function Check-CanStartTimer {
             Set-TimerAction -action $action
             return $true
         }
-    #}
+    }
     return $false
 }
 
@@ -190,9 +182,6 @@ function Check-CanStartTimer {
 ## Starts the timer to the next break
 function Start-Timer {
     Write-Host "Starting timer..."
-    $timer.Start()
-    [System.Windows.Forms.Application]::Run()
-
     # Display a timer start notification
     $actionName = Get-TimerActionAsString -action $timerAction
     $notificationTrayIcon.ShowBalloonTip(
@@ -202,7 +191,8 @@ function Start-Timer {
         [System.Windows.Forms.ToolTipIcon]::Notice
     )
     $notificationTrayIcon.Visible = $true
-    
+
+    $timer.Start()
 }
 
 
@@ -228,7 +218,7 @@ function Update-NotificationTrayHoverText {
 }
 
 function Update-NotificationTrayIcon {
-    
+    $notificationTrayIcon.Icon = Get-Icon -action $timerAction
 }
 
 
@@ -246,9 +236,8 @@ function Update-TimerTick() {
 
     # Trigger the timer action
     if ($global:timeRemaining -eq 0) {
+        Write-Host "Break time reached"
         $timer.Stop()
-        $timer.Dispose()
-        [System.Windows.Forms.Application]::Exit()
 
         switch ($timerAction) {
             [TimerAction]::Lock     { return Step-LockPC }
@@ -265,6 +254,7 @@ function Update-TimerTick() {
 
     # Display a 30 second warning
     if ($global:timeRemaining -eq 30) {
+        Write-Host "30 second warning"
         [System.Media.SystemSounds]::Exclamation.Play()
         $notificationTrayIcon.ShowBalloonTip(
             7000,
@@ -274,9 +264,14 @@ function Update-TimerTick() {
         )
         return
     }
+    
+    if ($timerAction -lt [TimerAction]::SignOut) {
+        return
+    }
 
     # Display a 5 minute warning
     if ($global:timeRemaining -eq (60 * 5)) {
+        Write-Host "5 minute warning"
         $notificationTrayIcon.ShowBalloonTip(
             7000,
             "$action Notice",
@@ -288,6 +283,7 @@ function Update-TimerTick() {
 
     # Display a 15 minute warning
     if ($global:timeRemaining -eq (60 * 15)) {
+        Write-Host "15 minute warning"
         $notificationTrayIcon.ShowBalloonTip(
             7000,
             "$action Notice",
@@ -324,6 +320,7 @@ function Step-TimerCompleteMessage
         ControlBox      = $false
         TopMost         = $true
     }
+    $overlayForm.Add_Activated({ $nudgeWindow.Focus() })
 
     $labelPanel = New-Object System.Windows.Forms.Panel -Property @{
         Dock            = "Fill"
@@ -407,13 +404,6 @@ function Step-TimerCompleteMessage
     $nudgeWindow.Show()
     $nudgeTimer.Interval = $nudgeTimerInterval
     $nudgeTimer.Start()
-    
-    Write-Host "START"
-    [System.Windows.Forms.Application]::Run()
-
-    #$nudgeTimer.Stop()
-    #$nudgeTimer.Dispose()
-    #[System.Windows.Forms.Application]::Exit()
 }
 
 
@@ -498,16 +488,12 @@ $chooseTimeForm.Controls.Add($enforcementLabel)
 $actionComboBox = New-Object System.Windows.Forms.ComboBox -Property @{
     Location            = New-Object Drawing.Point(229, 42)
     Size                = New-Object Drawing.Size(160, 25)
-    DropDownStyle       = "DropDownList"
+    DropDownStyle       = [System.Windows.Forms.ComboBoxStyle]::DropDownList
 }
-$actionComboBox.Items.AddRange(@(
-    "Display a message",
-    "Lock PC",
-    "Sign user out",
-    "Reboot PC",
-    "Shutdown PC"
-))
-$actionComboBox.SelectedIndex = 0  # Set default to "Display a message"
+foreach ($key in $timerActionNameMap.Keys) {
+    $actionComboBox.Items.Add($key)
+}
+$actionComboBox.SelectedIndex = 0
 $chooseTimeForm.Controls.Add($actionComboBox)
 
 # Tooltip for combo box
@@ -597,24 +583,24 @@ $ctxMenu_Cancel = New-Object System.Windows.Forms.MenuItem("Cancel")
 $ctxMenu_Cancel.add_Click({ Step-PromptCancelTimer })
 $ctxMenu.MenuItems.Add($ctxMenu_Cancel)
 
+#Step-TimerCompleteMessage
 
+# Show the form
+Write-Host "APP SETUP"
+$result = $chooseTimeForm.ShowDialog()
 
+# Check what the result was
+if ($result -eq [Windows.Forms.DialogResult]::OK) {
+    $timeSeconds = ($timePicker.Value - [DateTime]::Now).TotalSeconds
+    Write-Host $timeSeconds
+    if ($timeSeconds -ge (3 * 60)) {
+        $action = $actionComboBox.SelectedIndex
+        if ($action -ne [TimerAction]::Undefined)
+        {
+            Start-Timer -time $timeSeconds -action $action
+            [System.Windows.Forms.Application]::Run()
+        }
+    }
+}
 
-
-Step-TimerCompleteMessage
-
-## Show the form
-#Write-Host "APP SETUP"
-#$result = $chooseTimeForm.ShowDialog()
-#
-## Check what the result was
-#if ($result -eq [Windows.Forms.DialogResult]::OK) {
-#    $timeSeconds = $timePicker.Value.Millisecond / 1000
-#    if ($timeSeconds -ge (3 * 60)) {
-#        $action = Get-EnumFromComboBox -value $actionComboBox.SelectedItem
-#        if ($action -ne [TimerAction]::Undefined)
-#        {
-#            Start-Timer -time $timeSeconds -action $action
-#        }
-#    }
-#}
+Write-Host "APP QUIT"
